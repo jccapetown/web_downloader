@@ -5,61 +5,22 @@
 #This tool allows you to give a webpage that contains download links to files and will automatically download thos files for you.
 #It is proxy ready
 
-import urllib2, urllib, getpass
+import urllib, urllib.request, urllib.parse
+import getpass
 import sys, os
 import re
-import ConfigParser
+from filesize import size
 
 
 
-#if you use a proxy
-if not os.path.exists('proxy.conf'):
-    useproxy = raw_input('Do you use a proxy?: ')
-    if useproxy.lower() in ['yes', 'y']:
-        host = raw_input('Proxy host: ')
-        port = raw_input('Proxy port: ')
-
-        needauth = raw_input('Does the proxy require authentication?: ')
-        if needauth.lower() in ['yes','y']:
-            user = raw_input('Proxy user: ')
-            password = getpass.getpass('Proxy Password?: ')
-            proxy = urllib2.ProxyHandler({'http': 'http://%s:%s@%s:%s' % (user, password, host, port)})
-        
-        else:
-            proxy = urllib2.ProxyHandler({'http': 'http://%s:%s' % (host, port)})
-        
-        auth = urllib2.HTTPBasicAuthHandler()
-        opener = urllib2.build_opener(proxy, auth, urllib2.HTTPHandler)
-        urllib2.install_opener(opener)
-else:
-    config = ConfigParser.ConfigParser()
-    config.read('proxy.conf')
-    enabled = config.get('proxy', 'enabled')
-    host = config.get('proxy', 'host')
-    port = config.get('proxy', 'port')
-    useauth = config.get('proxy', 'useauth')
-    user = config.get('proxy', 'user')
-    if enabled in ['y','Y']:
-        if useauth in ['y', 'Y']:
-            password = getpass.getpass('Proxy Password?: ')
-            proxy = urllib2.ProxyHandler({'http': 'http://%s:%s@%s:%s' % (user, password, host, port)})
-        else:
-            proxy = urllib2.ProxyHandler({'http': 'http://%s:%s' % (host, port)})
-                    
-        auth = urllib2.HTTPBasicAuthHandler()
-        opener = urllib2.build_opener(proxy, auth, urllib2.HTTPHandler)
-        urllib2.install_opener(opener)
-        
-
-
-mainurl = raw_input('Url to scan for downloadable files?: ')
+mainurl = input('Url to scan for downloadable files?: ')
 if mainurl[-1] != '/':
     mainurl = '%s%s' % (mainurl , '/')
-response = urllib2.urlopen(mainurl).read()
+response = urllib.request.urlopen(mainurl).read().decode('utf-8')
 #search response for files
 #print response
 
-print 'Finding files....'
+print('Finding files....')
 flags = re.I
 #urls = re.findall(r'href=[\'"]?([^\'">]+)', response, flags)
 urls = re.findall(r'href=[\"]?([^\">]+)', response, flags)
@@ -68,7 +29,7 @@ located_files = {}
 
 #print "\n ".join(urls)
 
-print 'Extracting files'
+print ('Extracting files')
 for url in urls:
     file_name = url.split('/')[-1]
     if '.' in file_name:
@@ -82,22 +43,22 @@ for url in urls:
 
 
 for ix,ext in enumerate(located_files):
-    print '  %s.%s - %s Files Found' % (str(ix+1), ext, len(located_files[ext]) )    
+    print('  %s.%s - %s Files Found' % (str(ix+1), ext, len(located_files[ext]) )    )
 
 userext = 'NONE'
 while not userext.lower() in located_files:
     if userext == 'NONE':
-        userext = raw_input('Which extension files do you want to download?: eg. txt :')
+        userext = input('Which extension files do you want to download?: eg. txt :')
     else:
-        userext = raw_input('Did not find extension. Try Again: eg. txt :')
+        userext = input('Did not find extension. Try Again: eg. txt :')
     if userext.lower() == 'exit':
-        print 'cheers!'
+        print('cheers!')
         sys.exit()
 
 
 #Lets parse this response
 Totalrecords = len(located_files[userext])
-print "Found %s files" % Totalrecords
+print("Found %s files" % Totalrecords)
         
 lastcompletion = 0
 for ix,file_url in enumerate(located_files[userext]):
@@ -118,7 +79,7 @@ for ix,file_url in enumerate(located_files[userext]):
             filedownload = file_url
 
         
-        filedownload = urllib.quote(filedownload)
+        filedownload = urllib.parse.quote(filedownload)
         filedownload = filedownload.replace('%7', '~')
         filedownload = filedownload.replace('%2528', '(')
         filedownload = filedownload.replace('%2529', ')')
@@ -132,38 +93,39 @@ for ix,file_url in enumerate(located_files[userext]):
 
         
         
-        u = urllib2.urlopen(filedownload)
+        u = urllib.request.urlopen(filedownload)
 
-        decodename = urllib2.unquote(file_name)
+        decodename = urllib.parse.unquote(file_name)
         #print decodename
         
         if os.path.exists(decodename):
-            print '  File %s exists... skipping' % decodename
+            print('  File %s exists... skipping' % decodename)
             continue
         f = open(decodename , 'wb')
         meta = u.info()
-        file_size = int(meta.getheaders("Content-Length")[0])
+        file_size = int(meta.get("Content-Length"))
         #print ix+1, 'of',Totalrecords, " - Downloading: %s Bytes: %s" % (decodename, file_size)
-        print 'Downloading ' + str(ix+1) + ' of ' + str(Totalrecords) + " - %s Bytes: %s" % (decodename, file_size)
+        print('  Downloading ' + str(ix+1) + ' of ' + str(Totalrecords) + " - %s Bytes: %s" % (decodename, size(file_size)))
         file_size_dl = 0
         block_sz = 8192
+        current_interval_size = 0
         while True:
             buffer = u.read(block_sz)
+            current_interval_size += 1
             if not buffer:
                 break
-
+           
+            
             file_size_dl += len(buffer)
             f.write(buffer)
-            #status = r"%10d  [%3.2f%%]" % (file_size_dl, file_size_dl * 100. / file_size)
-            completion = round(file_size_dl * 100. / file_size)
             
-            if round(completion) % 20 == 0:
-                if completion != lastcompletion:
-                    status = "  %s completed \n" % (completion)
-                    print status,
-                    lastcompletion = completion
+            if current_interval_size == 128*10:
+              print('   -> Downloaded %s of %s' % (size(file_size_dl), size(file_size)))
+              current_interval_size = 0
+              #printProgressBar('Downloaded %s of %s' % (size(file_size_dl), size(file_size)))
+
 
         f.close()
         #raw_input('next')
-    except Exception, e:
-        print filedownload, "Exception: %s" % e
+    except Exception as e:
+        print(filedownload, "Exception: %s" % e)
